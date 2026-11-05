@@ -1,0 +1,34 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>psychedelic-js by rolin blake</title>
+    <link rel="stylesheet" href="./index.css">
+    <script src="./app.js" defer></script>
+</head>
+
+<body>
+
+    <canvas id="canvas" width="800" height="600"></canvas>
+
+    <div>
+        <label for="filename">Image Filename:</label>
+        <input type="text" id="filename" value="canvas" placeholder="Enter filename">
+    </div>
+
+    <div>
+        <label for="image-format">Image Format:</label>
+        <select id="image-format">
+            <option value="image/png">PNG</option>
+            <option value="image/jpeg">JPEG</option>
+            <option value="image/webp">WEBP</option>
+        </select>
+    </div>
+
+    <button id="download-btn">Download Image</button>
+
+</body>
+
+</html>

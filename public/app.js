@@ -22,6 +22,7 @@ function init() {
         if (hasGeneratedImg) {
             try {
                 generateImage(canvas, ctx);
+                hasGeneratedImg = true;
             } catch (error) {
                 console.error("Image redraw failed:", error);
                 alert(error.message);
@@ -42,14 +43,14 @@ function init() {
     heightSlider.addEventListener("change", resizeCanvas);
 
     generateBtn.addEventListener("click", () => {
-
         try {
             generateImage(canvas, ctx);
+            hasGeneratedImg = true;
+
         } catch (error) {
             console.error("Image generation failed:", error);
             alert(error.message);
         }
-
     });
 
     downloadBtn.addEventListener("click", () => {

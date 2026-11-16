@@ -1,9 +1,44 @@
 function init() {
     const canvas = document.getElementById("canvas");
+    const generateBtn = document.getElementById("generate-btn");
     const downloadBtn = document.getElementById("download-btn");
     const filenameInput = document.getElementById("filename");
     const formatSelect = document.getElementById("image-format");
+    const widthSlider = document.getElementById("canvas-width");
+    const heightSlider = document.getElementById("canvas-height");
+    const widthValue = document.getElementById("width-value");
+    const heightValue = document.getElementById("height-value");
     const ctx = canvas.getContext("2d");
+
+    function resizeCanvas() {
+        canvas.width = Number(widthSlider.value);
+        canvas.height = Number(heightSlider.value);
+        widthValue.textContent = canvas.width;
+        heightValue.textContent = canvas.height;
+    }
+
+    widthSlider.addEventListener("input", () => {
+        widthValue.textContent = widthSlider.value;
+    });
+
+    widthSlider.addEventListener("change", resizeCanvas);
+
+    heightSlider.addEventListener("input", () => {
+        heightValue.textContent = heightSlider.value;
+    });
+
+    heightSlider.addEventListener("change", resizeCanvas);
+
+    generateBtn.addEventListener("click", () => {
+
+        try {
+            generateImage(canvas, ctx);
+        } catch (error) {
+            console.error("Image generation failed:", error);
+            alert(error.message);
+        }
+
+    });
 
     downloadBtn.addEventListener("click", () => {
         let filename = filenameInput.value.trim();
@@ -37,6 +72,462 @@ function init() {
         }, format);
 
     });
+}
+
+function tokenizeExpression(expression) {
+
+    const tokens = [];
+
+    const pattern =
+        /^(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?|^[a-zA-Z_][a-zA-Z0-9_]*|^(?:&\^|<<|>>|[()+\-*/%&|^,])/;
+
+    let position = 0;
+
+    while (position < expression.length) {
+
+        const remaining = expression.slice(position);
+
+        // Ignore whitespace
+        if (/^\s+/.test(remaining)) {
+            position += remaining.match(/^\s+/)[0].length;
+            continue;
+        }
+
+        const match = remaining.match(pattern);
+
+        if (!match) {
+            throw new Error(
+                `Unexpected character at position ${position}: ${remaining[0]}`
+            );
+        }
+
+        tokens.push(match[0]);
+
+        position += match[0].length;
+    }
+
+    return tokens;
+}
+
+function parseExpression(expression) {
+
+    const tokens = tokenizeExpression(expression);
+
+    let position = 0;
+
+    function peek() {
+        return tokens[position];
+    }
+
+    function consume() {
+        return tokens[position++];
+    }
+
+    function expect(token) {
+        if (consume() !== token) {
+            throw new Error(`Expected '${token}'`);
+        }
+    }
+
+    // Operator precedence
+    const precedence = {
+        "|": 1,
+        "^": 2,
+        "&": 3,
+        "&^": 3,
+        "<<": 4,
+        ">>": 4,
+        "+": 5,
+        "-": 5,
+        "*": 6,
+        "/": 6,
+        "%": 6
+    };
+
+    // Parse binary expressions using precedence climbing.
+    function parseBinary(minPrecedence = 0) {
+
+        let left = parseUnary();
+
+        while (true) {
+
+            const operator = peek();
+            const currentPrecedence = precedence[operator];
+
+            if (
+                currentPrecedence === undefined ||
+                currentPrecedence < minPrecedence
+            ) {
+                break;
+            }
+
+            consume();
+
+            const right = parseBinary(currentPrecedence + 1);
+
+            left = {
+                type: "BinaryExpression",
+                operator: operator,
+                left: left,
+                right: right
+            };
+        }
+
+        return left;
+    }
+
+    // Parse unary operators.
+    function parseUnary() {
+
+        const operator = peek();
+
+        if (operator === "+" || operator === "-") {
+
+            consume();
+
+            return {
+                type: "UnaryExpression",
+                operator: operator,
+                operand: parseUnary()
+            };
+        }
+
+        return parsePrimary();
+    }
+
+    // Parse literals, variables, function calls and parentheses.
+    function parsePrimary() {
+
+        const token = peek();
+
+        if (token === undefined) {
+            throw new Error("Unexpected end of expression");
+        }
+
+        // Parenthesized expression
+        if (token === "(") {
+
+            consume();
+
+            const expression = parseBinary();
+
+            expect(")");
+
+            return {
+                type: "ParenthesizedExpression",
+                expression: expression
+            };
+        }
+
+        // Numeric literal
+        if (/^(?:\d|\.)/.test(token)) {
+
+            consume();
+
+            return {
+                type: "Literal",
+                value: Number(token)
+            };
+        }
+
+        // Identifier or function call
+        if (/^[a-zA-Z_]/.test(token)) {
+
+            const name = consume();
+
+            // Function call
+            if (peek() === "(") {
+
+                consume();
+
+                const args = [];
+
+                if (peek() !== ")") {
+
+                    while (true) {
+
+                        args.push(parseBinary());
+
+                        if (peek() !== ",") {
+                            break;
+                        }
+
+                        consume();
+                    }
+                }
+
+                expect(")");
+
+                return {
+                    type: "CallExpression",
+                    name: name,
+                    args: args
+                };
+            }
+
+            // Variable identifier
+            return {
+                type: "Identifier",
+                name: name
+            };
+        }
+
+        throw new Error(`Unexpected token: ${token}`);
+    }
+
+    const ast = parseBinary();
+
+    if (position !== tokens.length) {
+        throw new Error(`Unexpected token: ${peek()}`);
+    }
+
+    return ast;
+}
+
+// Evaluate an expression tree recursively.
+function evalExprTreeNode(node, vars = {}) {
+
+    if (!node || typeof node !== "object") {
+        throw new Error("Invalid expression node");
+    }
+
+    switch (node.type) {
+
+        // Numeric literals
+        case "Literal":
+            {
+                const value = Number(node.value);
+
+                if (!Number.isFinite(value)) {
+                    throw new Error(`Invalid numeric literal: ${node.value}`);
+                }
+
+                return value;
+            }
+
+            // Variable identifiers
+        case "Identifier":
+            {
+                const varName = node.name;
+
+                if (Object.hasOwn(vars, varName)) {
+                    return Number(vars[varName]);
+                }
+
+                throw new Error(`Undefined variable: ${varName}`);
+            }
+
+            // Function calls
+        case "CallExpression":
+            {
+
+                const functions = {
+                    sin: Math.sin,
+                    cos: Math.cos,
+                    tan: Math.tan,
+                    exp: Math.exp,
+                    sqrt: Math.sqrt,
+                    abs: Math.abs,
+                    pow: Math.pow
+                };
+
+                const func = functions[node.name];
+
+                if (!func) {
+                    throw new Error(`Undefined function: ${node.name}`);
+                }
+
+                const expectedArgs = node.name === "pow" ? 2 : 1;
+
+                if (node.args.length !== expectedArgs) {
+                    throw new Error(
+                        `${node.name} expects ${expectedArgs} arguments`
+                    );
+                }
+
+                const args = node.args.map(arg =>
+                    evalExprTreeNode(arg, vars)
+                );
+
+                return func(...args);
+            }
+
+            // Binary expressions
+        case "BinaryExpression":
+            {
+
+                const left = evalExprTreeNode(node.left, vars);
+                const right = evalExprTreeNode(node.right, vars);
+
+                switch (node.operator) {
+
+                    case "+":
+                        return left + right;
+
+                    case "-":
+                        return left - right;
+
+                    case "*":
+                        return left * right;
+
+                    case "/":
+                        return left / right;
+
+                    case "%":
+                        return ieeeRemainder(left, right);
+
+                    case "&":
+                        return bitwiseOperation(left, right, "&");
+
+                    case "|":
+                        return bitwiseOperation(left, right, "|");
+
+                    case "^":
+                        return bitwiseOperation(left, right, "^");
+
+                    case "&^":
+                        return bitwiseOperation(left, right, "&^");
+
+                    case "<<":
+                        return bitwiseOperation(left, right, "<<");
+
+                    case ">>":
+                        return bitwiseOperation(left, right, ">>");
+
+                    default:
+                        throw new Error(
+                            `Unsupported binary operator: ${node.operator}`
+                        );
+                }
+            }
+
+            // Parenthesized expressions
+        case "ParenthesizedExpression":
+            return evalExprTreeNode(node.expression, vars);
+
+            // Unary expressions
+        case "UnaryExpression":
+            {
+
+                const operand = evalExprTreeNode(node.operand, vars);
+
+                switch (node.operator) {
+
+                    case "+":
+                        return operand;
+
+                    case "-":
+                        return -operand;
+
+                    default:
+                        throw new Error(
+                            `Unsupported unary operator: ${node.operator}`
+                        );
+                }
+            }
+
+        default:
+            throw new Error(`Unsupported expression type: ${node.type}`);
+    }
+}
+
+
+// IEEE 754 remainder, corresponding to Go's math.Remainder.
+function ieeeRemainder(x, y) {
+
+    if (!Number.isFinite(x) || Number.isNaN(y) || y === 0) {
+        return NaN;
+    }
+
+    if (!Number.isFinite(y)) {
+        return x;
+    }
+
+    const quotient = x / y;
+    const lower = Math.floor(quotient);
+    const fraction = quotient - lower;
+
+    let nearest;
+
+    if (fraction < 0.5) {
+        nearest = lower;
+    } else if (fraction > 0.5) {
+        nearest = lower + 1;
+    } else {
+        nearest = lower % 2 === 0 ? lower : lower + 1;
+    }
+
+    return x - nearest * y;
+}
+
+function generateImage(canvas, ctx) {
+
+    const expressionInputs = {
+        r: document.getElementById("r-expression"),
+        g: document.getElementById("g-expression"),
+        b: document.getElementById("b-expression"),
+        a: document.getElementById("a-expression")
+    };
+
+    // Compile expressions into ASTs.
+    const expressions = {};
+
+    for (const [channel, input] of Object.entries(expressionInputs)) {
+
+        const source = input.value.trim();
+
+        if (!source) {
+            expressions[channel] = null;
+            continue;
+        }
+
+        expressions[channel] = parseExpression(source);
+    }
+
+    const width = canvas.width;
+    const height = canvas.height;
+
+    const imageData = ctx.createImageData(width, height);
+    const pixels = imageData.data;
+
+    const t = performance.now() / 1000;
+
+    // Iterate through every pixel.
+    for (let y = 0; y < height; y++) {
+
+        for (let x = 0; x < width; x++) {
+
+            const variables = { x, y, t };
+
+            const index = (y * width + x) * 4;
+
+            // Evaluate RGBA expressions.
+            const r = expressions.r ?
+                evalExprTreeNode(expressions.r, variables) :
+                0;
+
+            const g = expressions.g ?
+                evalExprTreeNode(expressions.g, variables) :
+                0;
+
+            const b = expressions.b ?
+                evalExprTreeNode(expressions.b, variables) :
+                0;
+
+            const a = expressions.a ?
+                evalExprTreeNode(expressions.a, variables) :
+                255;
+
+            // Clamp channel values to [0, 255].
+            pixels[index] = Math.round(Math.max(0, Math.min(255, r)));
+            pixels[index + 1] = Math.round(Math.max(0, Math.min(255, g)));
+            pixels[index + 2] = Math.round(Math.max(0, Math.min(255, b)));
+            pixels[index + 3] = Math.round(Math.max(0, Math.min(255, a)));
+        }
+    }
+
+    // Render generated pixels onto canvas.
+    ctx.putImageData(imageData, 0, 0);
 }
 
 document.addEventListener("DOMContentLoaded", init);

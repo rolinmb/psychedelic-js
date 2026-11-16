@@ -14,6 +14,35 @@
     <canvas id="canvas" width="800" height="600"></canvas>
 
     <div>
+        <label for="r-expression">R-Expression:</label>
+        <input type="text" id="r-expression">
+    </div>
+    <div>
+        <label for="g-expression">G-Expression:</label>
+        <input type="text" id="g-expression">
+    </div>
+    <div>
+        <label for="b-expression">B-Expression:</label>
+        <input type="text" id="b-expression">
+    </div>
+    <div>
+        <label for="a-expression">A-Expression:</label>
+        <input type="text" id="a-expression">
+    </div>
+
+    <button id="generate-btn">Generate Image</button>
+
+    <div>
+        <label for="canvas-width">Canvas Width: <span id="width-value">800</span>px</label>
+        <input type="range" id="canvas-width" min="100" max="2000" value="800" step="10">
+    </div>
+
+    <div>
+        <label for="canvas-height">Canvas Height: <span id="height-value">600</span>px</label>
+        <input type="range" id="canvas-height" min="100" max="2000" value="600" step="10">
+    </div>
+
+    <div>
         <label for="filename">Image Filename:</label>
         <input type="text" id="filename" value="canvas" placeholder="Enter filename">
     </div>

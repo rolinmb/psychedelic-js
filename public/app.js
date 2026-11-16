@@ -9,12 +9,24 @@ function init() {
     const widthValue = document.getElementById("width-value");
     const heightValue = document.getElementById("height-value");
     const ctx = canvas.getContext("2d");
+    let hasGeneratedImg = false;
 
     function resizeCanvas() {
         canvas.width = Number(widthSlider.value);
         canvas.height = Number(heightSlider.value);
+
         widthValue.textContent = canvas.width;
         heightValue.textContent = canvas.height;
+
+        // Redraw if an image has previously been generated.
+        if (hasGeneratedImg) {
+            try {
+                generateImage(canvas, ctx);
+            } catch (error) {
+                console.error("Image redraw failed:", error);
+                alert(error.message);
+            }
+        }
     }
 
     widthSlider.addEventListener("input", () => {
@@ -460,6 +472,180 @@ function ieeeRemainder(x, y) {
     return x - nearest * y;
 }
 
+function compileExpression(node) {
+
+    if (!node || typeof node !== "object") {
+        throw new Error("Invalid expression node");
+    }
+
+    switch (node.type) {
+
+        // Numeric literals
+        case "Literal":
+            {
+
+                const value = Number(node.value);
+
+                if (!Number.isFinite(value)) {
+                    throw new Error(`Invalid numeric literal: ${node.value}`);
+                }
+
+                // Constant: no evaluation required.
+                return () => value;
+            }
+
+            // Variable identifiers
+        case "Identifier":
+            {
+
+                const name = node.name;
+
+                return (vars) => {
+
+                    if (Object.hasOwn(vars, name)) {
+                        return Number(vars[name]);
+                    }
+
+                    throw new Error(`Undefined variable: ${name}`);
+                };
+            }
+
+            // Function calls
+        case "CallExpression":
+            {
+
+                const functions = {
+                    sin: Math.sin,
+                    cos: Math.cos,
+                    tan: Math.tan,
+                    exp: Math.exp,
+                    sqrt: Math.sqrt,
+                    abs: Math.abs,
+                    pow: Math.pow
+                };
+
+                const func = functions[node.name];
+
+                if (!func) {
+                    throw new Error(`Undefined function: ${node.name}`);
+                }
+
+                const expectedArgs = node.name === "pow" ? 2 : 1;
+
+                if (node.args.length !== expectedArgs) {
+                    throw new Error(
+                        `${node.name} expects ${expectedArgs} arguments`
+                    );
+                }
+
+                // Compile arguments only once.
+                const args = node.args.map(compileExpression);
+
+                return (vars) => {
+                    return func(...args.map(arg => arg(vars)));
+                };
+            }
+
+            // Binary expressions
+        case "BinaryExpression":
+            {
+
+                // Compile both sides once.
+                const left = compileExpression(node.left);
+                const right = compileExpression(node.right);
+
+                switch (node.operator) {
+
+                    case "+":
+                        return vars => left(vars) + right(vars);
+
+                    case "-":
+                        return vars => left(vars) - right(vars);
+
+                    case "*":
+                        return vars => left(vars) * right(vars);
+
+                    case "/":
+                        return vars => left(vars) / right(vars);
+
+                    case "%":
+                        return vars => ieeeRemainder(
+                            left(vars),
+                            right(vars)
+                        );
+
+                    case "&":
+                        return vars => bitwiseOperation(
+                            left(vars), right(vars), "&"
+                        );
+
+                    case "|":
+                        return vars => bitwiseOperation(
+                            left(vars), right(vars), "|"
+                        );
+
+                    case "^":
+                        return vars => bitwiseOperation(
+                            left(vars), right(vars), "^"
+                        );
+
+                    case "&^":
+                        return vars => bitwiseOperation(
+                            left(vars), right(vars), "&^"
+                        );
+
+                    case "<<":
+                        return vars => bitwiseOperation(
+                            left(vars), right(vars), "<<"
+                        );
+
+                    case ">>":
+                        return vars => bitwiseOperation(
+                            left(vars), right(vars), ">>"
+                        );
+
+                    default:
+                        throw new Error(
+                            `Unsupported binary operator: ${node.operator}`
+                        );
+                }
+            }
+
+            // Parenthesized expressions
+        case "ParenthesizedExpression":
+            {
+
+                return compileExpression(node.expression);
+            }
+
+            // Unary expressions
+        case "UnaryExpression":
+            {
+
+                const operand = compileExpression(node.operand);
+
+                switch (node.operator) {
+
+                    case "+":
+                        return vars => operand(vars);
+
+                    case "-":
+                        return vars => -operand(vars);
+
+                    default:
+                        throw new Error(
+                            `Unsupported unary operator: ${node.operator}`
+                        );
+                }
+            }
+
+        default:
+            throw new Error(
+                `Unsupported expression type: ${node.type}`
+            );
+    }
+}
+
 function generateImage(canvas, ctx) {
 
     const expressionInputs = {
@@ -469,19 +655,16 @@ function generateImage(canvas, ctx) {
         a: document.getElementById("a-expression")
     };
 
-    // Compile expressions into ASTs.
+    // Parse and compile each expression once.
     const expressions = {};
 
     for (const [channel, input] of Object.entries(expressionInputs)) {
 
         const source = input.value.trim();
 
-        if (!source) {
-            expressions[channel] = null;
-            continue;
-        }
-
-        expressions[channel] = parseExpression(source);
+        expressions[channel] = source ?
+            compileExpression(parseExpression(source)) :
+            null;
     }
 
     const width = canvas.width;
@@ -492,41 +675,42 @@ function generateImage(canvas, ctx) {
 
     const t = performance.now() / 1000;
 
-    // Iterate through every pixel.
+    // Reuse the same variables object for every pixel.
+    const variables = {
+        x: 0,
+        y: 0,
+        t: t
+    };
+
+    function getChannel(expression, fallback) {
+
+        if (!expression) return fallback;
+
+        const value = expression(variables);
+
+        if (!Number.isFinite(value)) return 0;
+
+        return Math.round(Math.max(0, Math.min(255, value)));
+    }
+
+    // Generate pixels.
     for (let y = 0; y < height; y++) {
+
+        variables.y = y;
 
         for (let x = 0; x < width; x++) {
 
-            const variables = { x, y, t };
+            variables.x = x;
 
             const index = (y * width + x) * 4;
 
-            // Evaluate RGBA expressions.
-            const r = expressions.r ?
-                evalExprTreeNode(expressions.r, variables) :
-                0;
-
-            const g = expressions.g ?
-                evalExprTreeNode(expressions.g, variables) :
-                0;
-
-            const b = expressions.b ?
-                evalExprTreeNode(expressions.b, variables) :
-                0;
-
-            const a = expressions.a ?
-                evalExprTreeNode(expressions.a, variables) :
-                255;
-
-            // Clamp channel values to [0, 255].
-            pixels[index] = Math.round(Math.max(0, Math.min(255, r)));
-            pixels[index + 1] = Math.round(Math.max(0, Math.min(255, g)));
-            pixels[index + 2] = Math.round(Math.max(0, Math.min(255, b)));
-            pixels[index + 3] = Math.round(Math.max(0, Math.min(255, a)));
+            pixels[index] = getChannel(expressions.r, 0);
+            pixels[index + 1] = getChannel(expressions.g, 0);
+            pixels[index + 2] = getChannel(expressions.b, 0);
+            pixels[index + 3] = getChannel(expressions.a, 255);
         }
     }
 
-    // Render generated pixels onto canvas.
     ctx.putImageData(imageData, 0, 0);
 }
 
